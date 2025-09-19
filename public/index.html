@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Clash Royale Defense Prototype</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.js"></script>
+    <script type="module" src="../src/main.js"></script>
+  </head>
+  <body>
+    <div id="game-container"></div>
+    <aside id="instructions">
+      <p>WASD to move. Aim with the mouse. Click a card or press 1-4 to cast.</p>
+    </aside>
+    <div id="ui-layer">
+      <div id="elixir-bar" class="hud-bar">
+        <div id="elixir-fill" class="hud-bar__fill"></div>
+        <span id="elixir-text">0 / 10</span>
+      </div>
+      <div id="card-bar"></div>
+    </div>
+  </body>
+</html>
