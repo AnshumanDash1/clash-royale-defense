@@ -69,13 +69,26 @@ body {
 #card-bar {
   display: flex;
   justify-content: center;
-  gap: 0.75rem;
+  align-items: flex-end;
+  gap: 1.25rem;
   pointer-events: auto;
 }
 
+.card-queue {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.card-active {
+  display: flex;
+  gap: 1rem;
+}
+
 .card {
-  width: 96px;
-  height: 128px;
+  width: 108px;
+  height: 140px;
   padding: 12px;
   background: var(--card-bg);
   border: 2px solid var(--card-border);
@@ -98,14 +111,27 @@ body {
   cursor: not-allowed;
 }
 
+.card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.7;
+}
+
+.card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
 .card-name {
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 600;
   text-transform: uppercase;
 }
 
 .card-desc {
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.4;
   opacity: 0.75;
 }
@@ -118,12 +144,100 @@ body {
   background: rgba(111, 91, 255, 0.4);
 }
 
-.card-hotkey {
-  position: absolute;
-  top: -16px;
-  right: 8px;
-  font-size: 11px;
-  opacity: 0.6;
+.card-preview {
+  width: 70px;
+  padding: 8px;
+  height: 96px;
+  background: rgba(16, 24, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  text-align: center;
+  pointer-events: none;
+}
+
+.card-preview .card-name {
+  font-size: 13px;
+}
+
+.card-preview .card-cost {
+  align-self: center;
+  font-size: 12px;
+}
+
+#wave-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 8, 16, 0.6);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#wave-overlay.hidden {
+  opacity: 0;
+}
+
+#wave-overlay.hidden .wave-panel {
+  transform: translateY(20px);
+}
+
+.wave-panel {
+  background: rgba(12, 18, 33, 0.92);
+  border: 2px solid rgba(123, 97, 255, 0.7);
+  border-radius: 16px;
+  padding: 24px 32px;
+  max-width: 360px;
+  text-align: center;
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  transform: translateY(0);
+  transition: transform 0.2s ease;
+}
+
+.wave-title {
+  margin: 0 0 8px;
+  font-size: 26px;
+}
+
+.wave-message {
+  margin: 0 0 18px;
+  font-size: 15px;
+  opacity: 0.75;
+}
+
+.wave-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+.wave-actions button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  background: rgba(111, 91, 255, 0.85);
+  color: var(--fg);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.wave-actions button:hover {
+  transform: translateY(-2px);
+  background: rgba(181, 111, 255, 0.95);
+}
+
+#wave-overlay:not(.hidden) {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 #instructions {

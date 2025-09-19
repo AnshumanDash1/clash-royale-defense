@@ -19,6 +19,8 @@ import { updateSummons } from './helpers/summonManager.js';
 import { initUI } from '../ui/uiManager.js';
 import { castFireball, castShield, castSummon, castGoo } from '../abilities/index.js';
 
+const ACTIVE_SLOT_COUNT = 2;
+
 export default class MainScene extends Phaser.Scene {
   constructor() {
     super('main');
@@ -32,6 +34,14 @@ export default class MainScene extends Phaser.Scene {
     this.playerHealth = this.playerMaxHealth;
     this.lastAimVector = new Phaser.Math.Vector2(1, 0);
     this.goos = [];
+
+    this.cardQueue = CARD_DEFS.map((card) => card.id);
+
+    this.currentWave = 0;
+    this.waveInProgress = false;
+    this.enemiesToSpawn = 0;
+    this.enemiesSpawned = 0;
+    this.waveSpawnEvent = null;
   }
 
   create() {
@@ -39,19 +49,19 @@ export default class MainScene extends Phaser.Scene {
     this.createGroups();
     this.createPlayer();
     this.buildHUD();
-    this.ui = initUI((cardId) => this.tryPlayCard(cardId));
+    this.ui = initUI((slotIndex) => this.tryPlayCardFromSlot(slotIndex));
     this.registerInput();
     this.registerColliders();
-    this.spawnInitialEnemies();
+    this.refreshCardUI();
 
-    this.spawnTimer = this.time.addEvent({
-      delay: 1600,
-      loop: true,
-      callback: () => spawnEnemy(this),
-    });
+    if (this.input.mouse && this.input.mouse.disableContextMenu) {
+      this.input.mouse.disableContextMenu();
+    }
 
     this.scale.on('resize', this.handleResize, this);
     this.handleResize({ width: this.scale.width, height: this.scale.height });
+
+    this.startNextWave();
   }
 
   createGroups() {
@@ -105,20 +115,12 @@ export default class MainScene extends Phaser.Scene {
       D: Phaser.Input.Keyboard.KeyCodes.D,
     });
 
-    CARD_DEFS.forEach((card) => {
-      const keyCode = this.getHotkeyCode(card.hotkey);
-      if (!keyCode) {
-        return;
+    this.input.on('pointerdown', (pointer) => {
+      if (pointer.button === 0) {
+        this.tryPlayCardFromSlot(0);
+      } else if (pointer.button === 2) {
+        this.tryPlayCardFromSlot(1);
       }
-      const keyObj = this.input.keyboard.addKey(keyCode);
-      keyObj.on('down', () => this.tryPlayCard(card.id));
-    });
-
-    this.input.on('pointerdown', () => {
-      this.pointerActive = true;
-    });
-    this.input.on('pointerup', () => {
-      this.pointerActive = false;
     });
   }
 
@@ -137,12 +139,6 @@ export default class MainScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies, this.player);
   }
 
-  spawnInitialEnemies() {
-    for (let i = 0; i < 5; i += 1) {
-      spawnEnemy(this, true);
-    }
-  }
-
   update(time, delta) {
     const dt = delta / 1000;
     this.updatePlayerMovement();
@@ -153,6 +149,7 @@ export default class MainScene extends Phaser.Scene {
     updateEnemies(this, time, dt);
     updateSummons(this, time);
     this.updateShields(time);
+    this.checkWaveCompletion();
   }
 
   updatePlayerMovement() {
@@ -174,6 +171,9 @@ export default class MainScene extends Phaser.Scene {
   }
 
   updateUIState() {
+    if (!this.ui) {
+      return;
+    }
     this.ui.updateElixir(this.elixir, this.maxElixir);
     this.ui.updateCardAvailability(this.elixir);
 
@@ -206,7 +206,13 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
-  tryPlayCard(cardId) {
+  tryPlayCardFromSlot(slotIndex) {
+    const activeCards = this.getActiveCards();
+    const cardId = activeCards[slotIndex];
+    if (!cardId) {
+      return false;
+    }
+
     const card = CARD_DEFS.find((def) => def.id === cardId);
     if (!card || this.elixir < card.cost || !this.player.active) {
       return false;
@@ -236,7 +242,12 @@ export default class MainScene extends Phaser.Scene {
         break;
     }
 
-    this.ui.pulseCard(cardId);
+    if (this.ui) {
+      this.ui.pulseSlot(slotIndex);
+    }
+
+    this.rotateCardQueue(slotIndex);
+    this.refreshCardUI();
     return true;
   }
 
@@ -310,6 +321,7 @@ export default class MainScene extends Phaser.Scene {
       onComplete: () => death.destroy(),
     });
     enemy.destroy();
+    this.checkWaveCompletion();
   }
 
   onPlayerDefeated() {
@@ -333,26 +345,104 @@ export default class MainScene extends Phaser.Scene {
     });
   }
 
+  refreshCardUI() {
+    if (!this.ui) {
+      return;
+    }
+    const active = this.getActiveCards();
+    const queue = this.cardQueue.slice(ACTIVE_SLOT_COUNT);
+    this.ui.setCardState({ active, queue });
+    this.ui.updateCardAvailability(this.elixir);
+  }
+
+  getActiveCards() {
+    return this.cardQueue.slice(0, ACTIVE_SLOT_COUNT);
+  }
+
+  rotateCardQueue(slotIndex) {
+    if (slotIndex < 0 || slotIndex >= ACTIVE_SLOT_COUNT) {
+      return;
+    }
+    const [cardId] = this.cardQueue.splice(slotIndex, 1);
+    if (cardId) {
+      this.cardQueue.push(cardId);
+    }
+  }
+
+  startNextWave() {
+    if (this.waveSpawnEvent) {
+      this.waveSpawnEvent.remove(false);
+      this.waveSpawnEvent = null;
+    }
+
+    if (this.ui) {
+      this.ui.hideWaveOptions();
+    }
+
+    this.currentWave += 1;
+    this.waveInProgress = true;
+    this.enemiesToSpawn = this.calculateWaveEnemyCount(this.currentWave);
+    this.enemiesSpawned = 0;
+
+    if (this.enemiesToSpawn <= 0) {
+      return;
+    }
+
+    this.spawnEnemyForWave();
+
+    if (this.enemiesToSpawn > 1) {
+      const delay = Math.max(450, 1200 - this.currentWave * 90);
+      this.waveSpawnEvent = this.time.addEvent({
+        delay,
+        repeat: this.enemiesToSpawn - 1,
+        callback: this.spawnEnemyForWave,
+        callbackScope: this,
+      });
+    }
+  }
+
+  spawnEnemyForWave() {
+    const initial = this.enemiesSpawned === 0;
+    const enemy = spawnEnemy(this, initial);
+    if (enemy) {
+      this.enemiesSpawned += 1;
+    }
+  }
+
+  calculateWaveEnemyCount(waveNumber) {
+    const base = 4;
+    const growth = 2;
+    return base + (waveNumber - 1) * growth;
+  }
+
+  checkWaveCompletion() {
+    if (!this.waveInProgress) {
+      return;
+    }
+
+    if (this.enemiesSpawned < this.enemiesToSpawn) {
+      return;
+    }
+
+    if (this.enemies.countActive(true) > 0) {
+      return;
+    }
+
+    this.waveInProgress = false;
+
+    if (this.ui) {
+      this.ui.showWaveOptions(this.currentWave, {
+        onContinue: () => this.startNextWave(),
+        onChange: () => {},
+      });
+    }
+  }
+
   handleResize(gameSize) {
     const { width, height } = gameSize;
     this.healthBg.setPosition(width / 2 - this.healthBarWidth / 2, 26);
     this.healthFill.setPosition(width / 2 - this.healthBarWidth / 2, 26);
     this.healthText.setPosition(width / 2, 26);
     this.cameras.main.setBounds(0, 0, width, height);
-  }
-
-  getHotkeyCode(hotkey) {
-    switch (hotkey) {
-      case '1':
-        return Phaser.Input.Keyboard.KeyCodes.ONE;
-      case '2':
-        return Phaser.Input.Keyboard.KeyCodes.TWO;
-      case '3':
-        return Phaser.Input.Keyboard.KeyCodes.THREE;
-      case '4':
-        return Phaser.Input.Keyboard.KeyCodes.FOUR;
-      default:
-        return null;
-    }
   }
 }
