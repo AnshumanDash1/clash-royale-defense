@@ -17,7 +17,7 @@ import {
 } from './helpers/enemyManager.js';
 import { updateSummons } from './helpers/summonManager.js';
 import { initUI } from '../ui/uiManager.js';
-import { castFireball, castShield, castSummon, castGoo } from '../abilities/index.js';
+import { castFireball, castShield, castSummon, castGoo, castHeal } from '../abilities/index.js';
 
 const ACTIVE_SLOT_COUNT = 2;
 
@@ -238,6 +238,9 @@ export default class MainScene extends Phaser.Scene {
       case 'goo':
         castGoo(this, direction);
         break;
+      case 'heal':
+        castHeal(this);
+        break;
       default:
         break;
     }
@@ -285,6 +288,7 @@ export default class MainScene extends Phaser.Scene {
     if (time > summon.getData('nextAttack')) {
       this.hurtEnemy(enemy, SUMMON_ATTACK_DAMAGE);
       summon.setData('nextAttack', time + SUMMON_ATTACK_COOLDOWN);
+      this.damageSummon(summon, 10);
     }
   }
 
@@ -293,6 +297,26 @@ export default class MainScene extends Phaser.Scene {
     this.cameras.main.shake(120, 0.003);
     if (this.playerHealth <= 0) {
       this.onPlayerDefeated();
+    }
+  }
+
+  damageSummon(summon, amount) {
+    if (!summon || !summon.active) {
+      return;
+    }
+    summon.health = Math.max(0, summon.health - amount);
+    const bar = summon.getData('healthBar');
+    if (bar) {
+      const ratio = Phaser.Math.Clamp(summon.health / summon.maxHealth, 0, 1);
+      if (ratio > 0) {
+        bar.fill.setVisible(true);
+        bar.fill.setDisplaySize(bar.width * ratio, bar.height);
+      } else {
+        bar.fill.setVisible(false);
+      }
+    }
+    if (summon.health <= 0) {
+      summon.destroy();
     }
   }
 

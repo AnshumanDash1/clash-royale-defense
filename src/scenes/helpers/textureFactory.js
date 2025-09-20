@@ -13,10 +13,10 @@ export function ensureTextures(scene) {
   graphics.clear();
 
   graphics.fillStyle(0xd84315, 1);
-  graphics.fillCircle(12, 12, 11);
-  graphics.fillStyle(0xffab91, 0.8);
-  graphics.fillCircle(9, 9, 6);
-  graphics.generateTexture('fireball', 24, 24);
+  graphics.fillCircle(20, 20, 18);
+  graphics.fillStyle(0xffab91, 0.85);
+  graphics.fillCircle(17, 17, 9);
+  graphics.generateTexture('fireball', 40, 40);
   graphics.clear();
 
   graphics.fillStyle(0x9a3030, 1);
@@ -27,10 +27,10 @@ export function ensureTextures(scene) {
   graphics.clear();
 
   graphics.fillStyle(0xd2d2d2, 1);
-  graphics.fillRoundedRect(0, 0, 18, 42, 6);
+  graphics.fillRoundedRect(0, 0, 24, 60, 8);
   graphics.fillStyle(0x7f8c8d, 1);
-  graphics.fillRoundedRect(4, 10, 10, 24, 4);
-  graphics.generateTexture('shield', 18, 42);
+  graphics.fillRoundedRect(5, 14, 14, 32, 6);
+  graphics.generateTexture('shield', 24, 60);
   graphics.clear();
 
   graphics.fillStyle(0xcfebd6, 1);
@@ -42,7 +42,7 @@ export function ensureTextures(scene) {
   graphics.clear();
 
   graphics.fillStyle(0x64ffda, 0.5);
-  graphics.fillCircle(32, 32, 32);
-  graphics.generateTexture('goo', 64, 64);
+  graphics.fillCircle(28, 28, 28);
+  graphics.generateTexture('goo', 56, 56);
   graphics.destroy();
 }

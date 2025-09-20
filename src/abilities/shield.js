@@ -8,8 +8,10 @@ export function castShield(scene, direction) {
     'shield',
   );
 
+  shield.setDisplaySize(36, 96);
   shield.setImmovable(true);
   shield.body.allowGravity = false;
+  shield.refreshBody();
   shield.setDepth(6);
 
   const angleDeg = Phaser.Math.RadToDeg(Math.atan2(direction.y, direction.x));

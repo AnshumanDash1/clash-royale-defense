@@ -24,6 +24,20 @@ export function updateSummons(scene, time) {
     } else {
       summon.setVelocity(0, 0);
     }
+
+    const bar = summon.getData('healthBar');
+    if (bar) {
+      const offsetY = 38;
+      const ratio = Phaser.Math.Clamp(summon.health / summon.maxHealth, 0, 1);
+      bar.bg.setPosition(summon.x, summon.y - offsetY);
+      bar.fill.setPosition(summon.x, summon.y - offsetY);
+      if (ratio > 0) {
+        bar.fill.setVisible(true);
+        bar.fill.setDisplaySize(bar.width * ratio, bar.height);
+      } else {
+        bar.fill.setVisible(false);
+      }
+    }
   });
 }
 
