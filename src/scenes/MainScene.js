@@ -42,14 +42,23 @@ export default class MainScene extends Phaser.Scene {
     this.enemiesToSpawn = 0;
     this.enemiesSpawned = 0;
     this.waveSpawnEvent = null;
+    this.manualPause = false;
   }
 
   create() {
     ensureTextures(this);
     this.createGroups();
     this.createPlayer();
+    this.configureWorldBounds();
     this.buildHUD();
-    this.ui = initUI((slotIndex) => this.tryPlayCardFromSlot(slotIndex));
+    this.ui = initUI({
+      onSlotSelect: (slotIndex) => this.tryPlayCardFromSlot(slotIndex),
+      onPauseToggle: () => this.togglePause(),
+      onRestart: () => this.restartGame(),
+    });
+    if (this.ui && typeof this.ui.setPauseState === 'function') {
+      this.ui.setPauseState(this.manualPause);
+    }
     this.registerInput();
     this.registerColliders();
     this.refreshCardUI();
@@ -77,10 +86,16 @@ export default class MainScene extends Phaser.Scene {
     this.player.setCollideWorldBounds(true);
     this.player.setCircle(26, 6, 6);
     this.player.setDepth(5);
+    this.player.setPushable(false);
 
     this.cameras.main.startFollow(this.player);
     this.cameras.main.setBackgroundColor('#101727');
     this.cameras.main.setBounds(0, 0, width, height);
+  }
+
+  configureWorldBounds() {
+    const { width, height } = this.scale;
+    this.physics.world.setBounds(0, 0, width, height);
   }
 
   buildHUD() {
@@ -141,6 +156,9 @@ export default class MainScene extends Phaser.Scene {
 
   update(time, delta) {
     const dt = delta / 1000;
+    if (this.manualPause) {
+      return;
+    }
     this.updatePlayerMovement();
     this.recoverElixir(dt);
     this.updateUIState();
@@ -207,6 +225,9 @@ export default class MainScene extends Phaser.Scene {
   }
 
   tryPlayCardFromSlot(slotIndex) {
+    if (this.manualPause) {
+      return false;
+    }
     const activeCards = this.getActiveCards();
     const cardId = activeCards[slotIndex];
     if (!cardId) {
@@ -468,5 +489,39 @@ export default class MainScene extends Phaser.Scene {
     this.healthFill.setPosition(width / 2 - this.healthBarWidth / 2, 26);
     this.healthText.setPosition(width / 2, 26);
     this.cameras.main.setBounds(0, 0, width, height);
+    this.physics.world.setBounds(0, 0, width, height);
+  }
+
+  setGamePaused(paused) {
+    const nextState = !!paused;
+    if (this.manualPause === nextState) {
+      return;
+    }
+    this.manualPause = nextState;
+    if (this.physics && this.physics.world) {
+      this.physics.world.isPaused = nextState;
+    }
+    if (this.time) {
+      this.time.paused = nextState;
+    }
+    if (nextState && this.player) {
+      this.player.setVelocity(0, 0);
+    }
+    if (this.ui && typeof this.ui.setPauseState === 'function') {
+      this.ui.setPauseState(nextState);
+    }
+  }
+
+  togglePause() {
+    this.setGamePaused(!this.manualPause);
+  }
+
+  restartGame() {
+    this.setGamePaused(false);
+    if (this.waveSpawnEvent) {
+      this.waveSpawnEvent.remove(false);
+      this.waveSpawnEvent = null;
+    }
+    this.scene.restart();
   }
 }

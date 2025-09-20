@@ -69,7 +69,7 @@ export function updateEnemies(scene, time, dt) {
       enemy.setData('nextStrafeFlip', time + Phaser.Math.Between(1200, 2600));
     }
 
-    const tangent = toPlayer.clone().rotate(Math.PI / 2 * strafeDir);
+    const tangent = toPlayer.clone().rotate((Math.PI / 2) * strafeDir);
     let desired = toPlayer.clone().scale(distance > 140 ? 1 : 0.3).add(tangent.scale(0.65));
     if (desired.lengthSq() > 0) {
       desired = desired.normalize();
@@ -77,9 +77,16 @@ export function updateEnemies(scene, time, dt) {
 
     let speed = enemy.getData('speed');
     const slowFactor = getSlowFactorFromGoo(scene, enemy, dt);
+    if (!enemy.active) {
+      return;
+    }
     speed *= slowFactor;
 
     enemy.setVelocity(desired.x * speed, desired.y * speed);
+
+    if (!enemy.active) {
+      return;
+    }
 
     if (distance < ENEMY_ATTACK_DISTANCE && time > enemy.getData('nextAttack')) {
       handleEnemyAttack(scene, enemy);
@@ -104,20 +111,27 @@ function handleEnemyAttack(scene, enemy) {
 
 function getSlowFactorFromGoo(scene, enemy, dt) {
   let factor = 1;
-  scene.goos.forEach((goo) => {
+  for (const goo of scene.goos) {
     if (!goo.active) {
-      return;
+      continue;
     }
     const distSq = Phaser.Math.Distance.Squared(enemy.x, enemy.y, goo.x, goo.y);
-    if (distSq <= goo.radiusSq) {
-      if (goo.ignited) {
-        scene.hurtEnemy(enemy, (GOO_IGNITE_DAMAGE_PER_SECOND * dt) / 2);
-        factor = Math.min(factor, GOO_SLOW_FACTOR * 0.5);
-      } else {
-        factor = Math.min(factor, GOO_SLOW_FACTOR);
-      }
+    if (distSq > goo.radiusSq) {
+      continue;
     }
-  });
+
+    if (goo.ignited) {
+      if (enemy.active) {
+        scene.hurtEnemy(enemy, (GOO_IGNITE_DAMAGE_PER_SECOND * dt) / 2);
+      }
+      factor = Math.min(factor, GOO_SLOW_FACTOR * 0.5);
+      if (!enemy.active) {
+        break;
+      }
+    } else {
+      factor = Math.min(factor, GOO_SLOW_FACTOR);
+    }
+  }
   return factor;
 }
 

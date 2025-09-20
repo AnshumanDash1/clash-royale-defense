@@ -24,7 +24,9 @@ function buildActiveCardElement(card, slotIndex, onSlotSelect) {
     </div>
     <div class="card-cost">${card.cost}⚡</div>
   `;
-  el.addEventListener('click', () => onSlotSelect(slotIndex));
+  if (typeof onSlotSelect === 'function') {
+    el.addEventListener('click', () => onSlotSelect(slotIndex));
+  }
   return el;
 }
 
@@ -39,11 +41,13 @@ function buildPreviewCardElement(card) {
   return el;
 }
 
-export function initUI(onSlotSelect) {
+export function initUI({ onSlotSelect, onPauseToggle, onRestart }) {
   const uiLayer = document.getElementById('ui-layer');
   const elixirFill = document.getElementById('elixir-fill');
   const elixirText = document.getElementById('elixir-text');
   const cardBar = document.getElementById('card-bar');
+  const pauseButton = document.getElementById('pause-button');
+  const restartButton = document.getElementById('restart-button');
 
   cardBar.innerHTML = '';
 
@@ -84,6 +88,7 @@ export function initUI(onSlotSelect) {
 
   let slotRefs = [];
   let overlayHandlers = { onContinue: null, onChange: null };
+  let pausedState = false;
 
   continueButton.addEventListener('click', () => {
     waveOverlay.classList.add('hidden');
@@ -98,6 +103,22 @@ export function initUI(onSlotSelect) {
       overlayHandlers.onChange();
     }
   });
+
+  if (pauseButton) {
+    pauseButton.onclick = () => {
+      if (typeof onPauseToggle === 'function') {
+        onPauseToggle();
+      }
+    };
+  }
+
+  if (restartButton) {
+    restartButton.onclick = () => {
+      if (typeof onRestart === 'function') {
+        onRestart();
+      }
+    };
+  }
 
   function renderActiveSlots(activeIds) {
     activeContainer.innerHTML = '';
@@ -165,6 +186,17 @@ export function initUI(onSlotSelect) {
     overlayHandlers = { onContinue: null, onChange: null };
   }
 
+  function setPauseState(paused) {
+    pausedState = !!paused;
+    if (pauseButton) {
+      pauseButton.textContent = pausedState ? 'Resume' : 'Pause';
+      pauseButton.dataset.state = pausedState ? 'paused' : 'running';
+    }
+    if (uiLayer) {
+      uiLayer.classList.toggle('paused', pausedState);
+    }
+  }
+
   return {
     updateElixir,
     updateCardAvailability,
@@ -172,5 +204,6 @@ export function initUI(onSlotSelect) {
     pulseSlot,
     showWaveOptions,
     hideWaveOptions,
+    setPauseState,
   };
 }

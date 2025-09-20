@@ -74,6 +74,40 @@ body {
   pointer-events: auto;
 }
 
+.control-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  pointer-events: auto;
+}
+
+.control-buttons button {
+  padding: 8px 18px;
+  border-radius: 12px;
+  border: 2px solid rgba(123, 97, 255, 0.7);
+  background: rgba(16, 24, 42, 0.85);
+  color: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.control-buttons button:hover {
+  transform: translateY(-2px);
+  background: rgba(111, 91, 255, 0.45);
+  border-color: rgba(181, 111, 255, 0.9);
+}
+
+#pause-button[data-state='paused'] {
+  background: rgba(181, 111, 255, 0.4);
+}
+
+#ui-layer.paused .card {
+  pointer-events: none;
+  opacity: 0.4;
+}
+
 .card-queue {
   display: grid;
   grid-auto-flow: column;
