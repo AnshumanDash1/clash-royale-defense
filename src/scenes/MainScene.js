@@ -1,4 +1,4 @@
-import { CARD_DEFS } from '../config/cards.js';
+import { CARD_DEFS, CARD_LOOKUP } from '../config/cards.js';
 import {
   MAX_ELIXIR,
   ELIXIR_PER_SECOND,
@@ -7,6 +7,9 @@ import {
   FIREBALL_DAMAGE,
   SUMMON_ATTACK_DAMAGE,
   SUMMON_ATTACK_COOLDOWN,
+  DASH_SPEED,
+  DASH_DAMAGE,
+  TURRET_PROJECTILE_SPEED,
 } from '../config/constants.js';
 import { ensureTextures } from './helpers/textureFactory.js';
 import {
@@ -17,8 +20,6 @@ import {
 } from './helpers/enemyManager.js';
 import { updateSummons } from './helpers/summonManager.js';
 import { initUI } from '../ui/uiManager.js';
-import { castFireball, castShield, castSummon, castGoo, castHeal } from '../abilities/index.js';
-
 const ACTIVE_SLOT_COUNT = 2;
 
 export default class MainScene extends Phaser.Scene {
@@ -34,8 +35,13 @@ export default class MainScene extends Phaser.Scene {
     this.playerHealth = this.playerMaxHealth;
     this.lastAimVector = new Phaser.Math.Vector2(1, 0);
     this.goos = [];
+    this.acidPools = [];
+    this.freezeZones = [];
+    this.traps = [];
+    this.turrets = [];
 
-    this.cardQueue = CARD_DEFS.map((card) => card.id);
+    this.cardQueue = ['fireball', 'shield', 'summon', 'heal'];
+    this.cardLoadout = [...this.cardQueue];
 
     this.currentWave = 0;
     this.waveInProgress = false;
@@ -43,6 +49,10 @@ export default class MainScene extends Phaser.Scene {
     this.enemiesSpawned = 0;
     this.waveSpawnEvent = null;
     this.manualPause = false;
+    this.playerInvulnerableUntil = 0;
+    this.reflectBarrierUntil = 0;
+    this.playerHiddenUntil = 0;
+    this.dashState = null;
   }
 
   create() {
@@ -74,7 +84,8 @@ export default class MainScene extends Phaser.Scene {
   }
 
   createGroups() {
-    this.fireballs = this.physics.add.group();
+    this.projectiles = this.physics.add.group();
+    this.fireballs = this.projectiles;
     this.enemies = this.physics.add.group();
     this.shields = this.physics.add.group({ immovable: true, allowGravity: false });
     this.summons = this.physics.add.group();
@@ -141,7 +152,7 @@ export default class MainScene extends Phaser.Scene {
 
   registerColliders() {
     this.physics.add.overlap(
-      this.fireballs,
+      this.projectiles,
       this.enemies,
       (fireball, enemy) => this.onFireballHitsEnemy(fireball, enemy),
     );
@@ -160,13 +171,19 @@ export default class MainScene extends Phaser.Scene {
       return;
     }
     this.updatePlayerMovement();
+    this.updateDashState(dt);
     this.recoverElixir(dt);
     this.updateUIState();
-    this.updateFireballs();
+    this.updateProjectiles();
     cleanupGoos(this, time);
+    this.updateAcidPools(time, dt);
+    this.updateFreezeZones(time);
     updateEnemies(this, time, dt);
     updateSummons(this, time);
     this.updateShields(time);
+    this.updateTraps(time);
+    this.updateTurrets(time, dt);
+    this.updateStatusEffects();
     this.checkWaveCompletion();
   }
 
@@ -200,17 +217,221 @@ export default class MainScene extends Phaser.Scene {
     this.healthText.setText(`${Math.ceil(this.playerHealth)} / ${this.playerMaxHealth}`);
   }
 
-  updateFireballs() {
-    this.fireballs.children.iterate((fireball) => {
-      if (!fireball) {
+  updateProjectiles() {
+    this.projectiles.children.iterate((projectile) => {
+      if (!projectile) {
         return;
       }
-      if (this.time.now - fireball.getData('spawnTime') > fireball.getData('lifespan')) {
-        fireball.destroy();
+      const spawnTime = projectile.getData('spawnTime') ?? 0;
+      const lifespan = projectile.getData('lifespan') ?? 1500;
+      if (this.time.now - spawnTime > lifespan) {
+        projectile.destroy();
         return;
       }
-      checkFireballGooInteraction(this, fireball);
+      if (projectile.getData('type') === 'fireball') {
+        checkFireballGooInteraction(this, projectile);
+      }
     });
+  }
+
+  updateDashState(dt) {
+    if (!this.dashState) {
+      return;
+    }
+    const now = this.time.now;
+    if (now >= this.dashState.endTime) {
+      this.dashState = null;
+      this.player.setDrag(0);
+      return;
+    }
+
+    const { direction } = this.dashState;
+    this.player.setVelocity(direction.x * DASH_SPEED, direction.y * DASH_SPEED);
+
+    this.enemies.children.iterate((enemy) => {
+      if (!enemy || !enemy.active) {
+        return;
+      }
+      const distSq = Phaser.Math.Distance.Squared(this.player.x, this.player.y, enemy.x, enemy.y);
+      if (distSq <= 3200) {
+        const lastHit = enemy.getData('lastDashHit') ?? 0;
+        if (now - lastHit > 120) {
+          this.hurtEnemy(enemy, DASH_DAMAGE);
+          enemy.setData('lastDashHit', now);
+        }
+        const push = new Phaser.Math.Vector2(enemy.x - this.player.x, enemy.y - this.player.y);
+        if (push.lengthSq() > 0) {
+          push.normalize().scale(260);
+          enemy.setVelocity(push.x, push.y);
+        }
+      }
+    });
+  }
+
+  updateTraps(time) {
+    this.traps = this.traps.filter((trap) => {
+      const { sprite } = trap;
+      if (!sprite || !sprite.active) {
+        if (trap.overlap) {
+          trap.overlap.destroy();
+        }
+        return false;
+      }
+      if (time > trap.expiresAt) {
+        this.detonateTrap(trap, false);
+        return false;
+      }
+      return true;
+    });
+  }
+
+  detonateTrap(trap, triggered = true) {
+    const { sprite, overlap, radiusSq, damage } = trap;
+    if (overlap) {
+      overlap.destroy();
+      trap.overlap = null;
+    }
+    if (!sprite.active) {
+      return;
+    }
+
+    if (triggered) {
+      const explosion = this.add.circle(sprite.x, sprite.y, Math.sqrt(radiusSq), 0xff7043, 0.45).setDepth(4);
+      this.tweens.add({
+        targets: explosion,
+        alpha: 0,
+        scale: 1.8,
+        duration: 260,
+        onComplete: () => explosion.destroy(),
+      });
+
+      this.enemies.children.iterate((enemy) => {
+        if (!enemy || !enemy.active) {
+          return;
+        }
+        const distSq = Phaser.Math.Distance.Squared(sprite.x, sprite.y, enemy.x, enemy.y);
+        if (distSq <= radiusSq) {
+          this.hurtEnemy(enemy, damage);
+          const force = new Phaser.Math.Vector2(enemy.x - sprite.x, enemy.y - sprite.y).normalize().scale(280);
+          enemy.setVelocity(force.x, force.y);
+        }
+      });
+    }
+
+    sprite.destroy();
+
+    if (this.traps) {
+      this.traps = this.traps.filter((t) => t !== trap);
+    }
+  }
+
+  updateAcidPools(time, dt) {
+    this.acidPools = this.acidPools.filter((pool) => {
+      if (!pool.active) {
+        pool.visual.destroy();
+        return false;
+      }
+      if (time > pool.expiresAt) {
+        pool.active = false;
+        pool.visual.destroy();
+        return false;
+      }
+
+      this.enemies.children.iterate((enemy) => {
+        if (!enemy || !enemy.active) {
+          return;
+        }
+        const distSq = Phaser.Math.Distance.Squared(enemy.x, enemy.y, pool.x, pool.y);
+        if (distSq <= pool.radiusSq) {
+          this.hurtEnemy(enemy, pool.damagePerSecond * dt);
+        }
+      });
+      return true;
+    });
+  }
+
+  updateFreezeZones(time) {
+    this.freezeZones = this.freezeZones.filter((zone) => {
+      if (!zone.active) {
+        if (zone.visual) {
+          zone.visual.destroy();
+        }
+        return false;
+      }
+      if (time > zone.expiresAt) {
+        zone.active = false;
+        if (zone.visual) {
+          zone.visual.destroy();
+        }
+        return false;
+      }
+      return true;
+    });
+  }
+
+  updateTurrets(time, dt) {
+    this.turrets = this.turrets.filter((turret) => {
+      const { sprite } = turret;
+      if (!sprite || !sprite.active) {
+        return false;
+      }
+      if (time > turret.expiresAt) {
+        sprite.destroy();
+        return false;
+      }
+
+      if (time >= turret.nextFire) {
+        const target = this.findNearestEnemyWithin(sprite.x, sprite.y, turret.rangeSq);
+        if (target) {
+          turret.nextFire = time + turret.fireRate;
+          const vector = new Phaser.Math.Vector2(target.x - sprite.x, target.y - sprite.y);
+          const distance = vector.length();
+          if (distance > 0) {
+            vector.scale(1 / distance);
+          }
+          sprite.setRotation(vector.angle());
+
+          const bullet = this.projectiles.create(sprite.x, sprite.y, 'turret-bullet');
+          bullet.setCircle(8, 4, 4);
+          bullet.setVelocity(vector.x * TURRET_PROJECTILE_SPEED, vector.y * TURRET_PROJECTILE_SPEED);
+          bullet.setDepth(5);
+          bullet.setDataEnabled();
+          bullet.setData({
+            type: 'turret-bullet',
+            damage: turret.damage,
+            lifespan: 1400,
+            spawnTime: time,
+            pierce: 0,
+          });
+        }
+      }
+      return true;
+    });
+  }
+
+  findNearestEnemyWithin(x, y, radiusSq) {
+    let closest = null;
+    let closestDist = radiusSq;
+    this.enemies.children.iterate((enemy) => {
+      if (!enemy || !enemy.active) {
+        return;
+      }
+      const distSq = Phaser.Math.Distance.Squared(x, y, enemy.x, enemy.y);
+      if (distSq <= closestDist) {
+        closestDist = distSq;
+        closest = enemy;
+      }
+    });
+    return closest;
+  }
+
+  updateStatusEffects() {
+    if (this.playerHiddenUntil && this.time.now >= this.playerHiddenUntil) {
+      this.playerHiddenUntil = 0;
+      if (this.player.alpha !== 1) {
+        this.player.setAlpha(1);
+      }
+    }
   }
 
   updateShields(time) {
@@ -234,7 +455,7 @@ export default class MainScene extends Phaser.Scene {
       return false;
     }
 
-    const card = CARD_DEFS.find((def) => def.id === cardId);
+    const card = CARD_LOOKUP.get(cardId);
     if (!card || this.elixir < card.cost || !this.player.active) {
       return false;
     }
@@ -246,24 +467,30 @@ export default class MainScene extends Phaser.Scene {
 
     this.elixir -= card.cost;
 
-    switch (card.id) {
-      case 'fireball':
-        castFireball(this, direction);
-        break;
-      case 'shield':
-        castShield(this, direction);
-        break;
-      case 'summon':
-        castSummon(this, direction);
-        break;
-      case 'goo':
-        castGoo(this, direction);
-        break;
-      case 'heal':
-        castHeal(this);
-        break;
-      default:
-        break;
+    const pointer = this.input.activePointer;
+    const pointerWorld = pointer ? pointer.positionToCamera(this.cameras.main) : null;
+    const context = {
+      direction,
+      pointer,
+      pointerWorld,
+      slotIndex,
+      time: this.time.now,
+    };
+
+    let castResult = true;
+    try {
+      if (typeof card.cast === 'function') {
+        castResult = card.cast(this, context);
+      }
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error(`Failed to cast card ${card.id}:`, error);
+      castResult = false;
+    }
+
+    if (castResult === false) {
+      this.elixir = Math.min(this.maxElixir, this.elixir + card.cost);
+      return false;
     }
 
     if (this.ui) {
@@ -293,10 +520,19 @@ export default class MainScene extends Phaser.Scene {
   }
 
   onFireballHitsEnemy(fireball, enemy) {
-    if (!enemy.active) {
+    if (!enemy.active || !fireball.active) {
       return;
     }
-    this.hurtEnemy(enemy, FIREBALL_DAMAGE);
+
+    const damage = fireball.getData('damage') ?? FIREBALL_DAMAGE;
+    this.hurtEnemy(enemy, damage);
+
+    const pierce = fireball.getData('pierce') ?? 0;
+    if (pierce > 0) {
+      fireball.setData('pierce', pierce - 1);
+      return;
+    }
+
     fireball.destroy();
   }
 
@@ -314,6 +550,9 @@ export default class MainScene extends Phaser.Scene {
   }
 
   damagePlayer(amount) {
+    if (this.time && this.time.now < this.playerInvulnerableUntil) {
+      return;
+    }
     this.playerHealth = Math.max(0, this.playerHealth - amount);
     this.cameras.main.shake(120, 0.003);
     if (this.playerHealth <= 0) {
@@ -415,6 +654,7 @@ export default class MainScene extends Phaser.Scene {
   }
 
   startNextWave() {
+    this.setGamePaused(false);
     if (this.waveSpawnEvent) {
       this.waveSpawnEvent.remove(false);
       this.waveSpawnEvent = null;
@@ -423,6 +663,9 @@ export default class MainScene extends Phaser.Scene {
     if (this.ui) {
       this.ui.hideWaveOptions();
     }
+
+    this.cardQueue = [...this.cardLoadout];
+    this.refreshCardUI();
 
     this.currentWave += 1;
     this.waveInProgress = true;
@@ -474,11 +717,12 @@ export default class MainScene extends Phaser.Scene {
     }
 
     this.waveInProgress = false;
+    this.setGamePaused(true);
 
     if (this.ui) {
       this.ui.showWaveOptions(this.currentWave, {
         onContinue: () => this.startNextWave(),
-        onChange: () => {},
+        onChange: () => this.openLoadoutEditor(),
       });
     }
   }
@@ -514,6 +758,45 @@ export default class MainScene extends Phaser.Scene {
 
   togglePause() {
     this.setGamePaused(!this.manualPause);
+  }
+
+  openLoadoutEditor() {
+    if (!this.ui) {
+      return;
+    }
+
+    this.ui.showLoadoutBuilder({
+      loadout: [...this.cardLoadout],
+      onConfirm: (newLoadout) => {
+        const sanitized = [];
+        const seen = new Set();
+        newLoadout.forEach((id) => {
+          if (CARD_LOOKUP.has(id) && !seen.has(id)) {
+            sanitized.push(id);
+            seen.add(id);
+          }
+        });
+        if (sanitized.length === 4) {
+          this.cardLoadout = sanitized;
+          this.cardQueue = [...this.cardLoadout];
+          this.refreshCardUI();
+        }
+        if (this.ui) {
+          this.ui.showWaveOptions(this.currentWave, {
+            onContinue: () => this.startNextWave(),
+            onChange: () => this.openLoadoutEditor(),
+          });
+        }
+      },
+      onCancel: () => {
+        if (this.ui) {
+          this.ui.showWaveOptions(this.currentWave, {
+            onContinue: () => this.startNextWave(),
+            onChange: () => this.openLoadoutEditor(),
+          });
+        }
+      },
+    });
   }
 
   restartGame() {

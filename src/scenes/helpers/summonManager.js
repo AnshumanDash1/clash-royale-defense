@@ -15,11 +15,16 @@ export function updateSummons(scene, time) {
         vector.scale(1 / distance);
       }
 
-      summon.setVelocity(vector.x * SUMMON_SPEED, vector.y * SUMMON_SPEED);
+      const speed = summon.getData('speed') ?? SUMMON_SPEED;
+      summon.setVelocity(vector.x * speed, vector.y * speed);
 
-      if (distance < 46 && time > summon.getData('nextAttack')) {
-        scene.hurtEnemy(target, SUMMON_ATTACK_DAMAGE);
-        summon.setData('nextAttack', time + SUMMON_ATTACK_COOLDOWN);
+      const attackRange = summon.getData('attackRange') ?? 46;
+      const attackDamage = summon.getData('attackDamage') ?? SUMMON_ATTACK_DAMAGE;
+      const attackCooldown = summon.getData('attackCooldown') ?? SUMMON_ATTACK_COOLDOWN;
+
+      if (distance < attackRange && time > summon.getData('nextAttack')) {
+        scene.hurtEnemy(target, attackDamage);
+        summon.setData('nextAttack', time + attackCooldown);
       }
     } else {
       summon.setVelocity(0, 0);
@@ -27,7 +32,7 @@ export function updateSummons(scene, time) {
 
     const bar = summon.getData('healthBar');
     if (bar) {
-      const offsetY = 38;
+      const offsetY = bar.offsetY ?? 38;
       const ratio = Phaser.Math.Clamp(summon.health / summon.maxHealth, 0, 1);
       bar.bg.setPosition(summon.x, summon.y - offsetY);
       bar.fill.setPosition(summon.x, summon.y - offsetY);

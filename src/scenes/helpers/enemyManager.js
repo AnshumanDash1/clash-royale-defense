@@ -5,9 +5,10 @@ import {
   ENEMY_MAX_HEALTH,
   GOO_SLOW_FACTOR,
   GOO_IGNITE_DAMAGE_PER_SECOND,
+  REFLECT_BARRIER_DAMAGE,
 } from '../../config/constants.js';
 
-import { igniteGoo } from '../../abilities/goo.js';
+import { igniteGoo } from '../../cards/index.js';
 
 export function spawnEnemy(scene, initial = false) {
   if (scene.enemies.countActive(true) > 24) {
@@ -51,6 +52,7 @@ export function spawnEnemy(scene, initial = false) {
 
 export function updateEnemies(scene, time, dt) {
   const player = scene.player;
+  const playerHidden = scene.playerHiddenUntil && time < scene.playerHiddenUntil;
   scene.enemies.children.iterate((enemy) => {
     if (!enemy || !enemy.active) {
       return;
@@ -71,12 +73,15 @@ export function updateEnemies(scene, time, dt) {
 
     const tangent = toPlayer.clone().rotate((Math.PI / 2) * strafeDir);
     let desired = toPlayer.clone().scale(distance > 140 ? 1 : 0.3).add(tangent.scale(0.65));
+    if (playerHidden) {
+      desired.scale(0.35);
+    }
     if (desired.lengthSq() > 0) {
       desired = desired.normalize();
     }
 
     let speed = enemy.getData('speed');
-    const slowFactor = getSlowFactorFromGoo(scene, enemy, dt);
+    const slowFactor = getSlowFactorFromAreas(scene, enemy, dt);
     if (!enemy.active) {
       return;
     }
@@ -100,7 +105,20 @@ function handleEnemyAttack(scene, enemy) {
     return;
   }
 
+  const now = scene.time.now;
+  if (scene.playerHiddenUntil && now < scene.playerHiddenUntil) {
+    return;
+  }
+
   scene.damagePlayer(8);
+  if (scene.reflectBarrierUntil && now < scene.reflectBarrierUntil) {
+    scene.hurtEnemy(enemy, REFLECT_BARRIER_DAMAGE);
+    const knockback = new Phaser.Math.Vector2(enemy.x - scene.player.x, enemy.y - scene.player.y);
+    if (knockback.lengthSq() > 0) {
+      knockback.normalize().scale(260);
+      enemy.setVelocity(knockback.x, knockback.y);
+    }
+  }
   enemy.setTintFill(0xffd54f);
   scene.time.delayedCall(120, () => {
     if (enemy.active) {
@@ -109,7 +127,7 @@ function handleEnemyAttack(scene, enemy) {
   });
 }
 
-function getSlowFactorFromGoo(scene, enemy, dt) {
+function getSlowFactorFromAreas(scene, enemy, dt) {
   let factor = 1;
   for (const goo of scene.goos) {
     if (!goo.active) {
@@ -130,6 +148,18 @@ function getSlowFactorFromGoo(scene, enemy, dt) {
       }
     } else {
       factor = Math.min(factor, GOO_SLOW_FACTOR);
+    }
+  }
+
+  if (scene.freezeZones) {
+    for (const zone of scene.freezeZones) {
+      if (!zone.active) {
+        continue;
+      }
+      const distSq = Phaser.Math.Distance.Squared(enemy.x, enemy.y, zone.x, zone.y);
+      if (distSq <= zone.radiusSq) {
+        factor = Math.min(factor, zone.slowFactor);
+      }
     }
   }
   return factor;
